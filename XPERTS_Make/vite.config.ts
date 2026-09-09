@@ -33,4 +33,18 @@ export default defineConfig({
 
   // File types to support raw imports. Never add .css, .tsx, or .ts files to this.
   assetsInclude: ['**/*.svg', '**/*.csv'],
+
+  build: {
+    rollupOptions: {
+      output: {
+        // Split large vendor groups into separate chunks so the initial
+        // payload is smaller and long-term caching is more effective.
+        manualChunks: {
+          firebase: ['firebase/app', 'firebase/auth', 'firebase/firestore', 'firebase/storage'],
+          react: ['react', 'react-dom', 'react-router'],
+          charts: ['recharts'],
+        },
+      },
+    },
+  },
 })

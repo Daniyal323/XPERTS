@@ -1,149 +1,118 @@
-import { useState } from "react";
-import { useNavigate } from "react-router";
-import { ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react";
-import { Card } from "../../components/ui/card";
+import { useMemo, useState } from "react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
+import { useAuth } from "../../context/AuthContext";
+import { useLocale } from "../../i18n/useLocale";
+import { updateUser } from "../../services/data/users";
+import { Screen, AppHeader, BottomNav } from "../../components/shared";
+import { cn } from "../../components/ui/utils";
+
+const toKey = (y: number, m: number, d: number) =>
+  `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 
 export function CalendarView() {
-  const navigate = useNavigate();
-  const [currentMonth] = useState("März 2026");
+  const { t } = useTranslation();
+  const { locale } = useLocale();
+  const { user } = useAuth();
+  const [cursor, setCursor] = useState(() => new Date());
 
-  const weekDays = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
-  
-  const calendarDays = [
-    { date: 1, status: "available" },
-    { date: 2, status: "available" },
-    { date: 3, status: "booked" },
-    { date: 4, status: "booked" },
-    { date: 5, status: "booked" },
-    { date: 6, status: "available" },
-    { date: 7, status: "available" },
-    { date: 8, status: "available" },
-    { date: 9, status: "available" },
-    { date: 10, status: "booked" },
-    { date: 11, status: "booked" },
-    { date: 12, status: "booked" },
-    { date: 13, status: "available" },
-    { date: 14, status: "available" },
-    { date: 15, status: "available" },
-    { date: 16, status: "available" },
-    { date: 17, status: "booked" },
-    { date: 18, status: "booked" },
-    { date: 19, status: "booked" },
-    { date: 20, status: "booked" },
-    { date: 21, status: "booked" },
-    { date: 22, status: "available" },
-    { date: 23, status: "available" },
-    { date: 24, status: "available" },
-    { date: 25, status: "available" },
-    { date: 26, status: "available" },
-    { date: 27, status: "available" },
-    { date: 28, status: "available" },
-    { date: 29, status: "available" },
-    { date: 30, status: "available" },
-    { date: 31, status: "available" },
-  ];
+  const booked = useMemo(() => new Set(user?.bookedDates ?? []), [user?.bookedDates]);
+
+  const year = cursor.getFullYear();
+  const month = cursor.getMonth();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  // Monday-first leading blanks.
+  const firstWeekday = (new Date(year, month, 1).getDay() + 6) % 7;
+  const monthLabel = cursor.toLocaleString(locale === "de" ? "de-DE" : "en-US", { month: "long", year: "numeric" });
+  const weekDays = locale === "de" ? ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"] : ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
+
+  const monthBookedCount = [...booked].filter((k) => k.startsWith(`${year}-${String(month + 1).padStart(2, "0")}`)).length;
+
+  const toggleDay = async (day: number) => {
+    if (!user) return;
+    const key = toKey(year, month, day);
+    const next = new Set(booked);
+    const wasBooked = next.has(key);
+    if (wasBooked) next.delete(key);
+    else next.add(key);
+    try {
+      await updateUser(user.uid, { bookedDates: [...next] });
+      toast.success(t("calendar.saved"));
+    } catch {
+      toast.error(t("errors.generic"));
+    }
+  };
+
+  const shiftMonth = (delta: number) => setCursor(new Date(year, month + delta, 1));
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] flex flex-col">
-      {/* Header */}
-      <div className="bg-white border-b border-[#E2E8F0] px-4 py-4">
-        <div className="flex items-center gap-3 mb-4">
-          <button
-            onClick={() => navigate(-1)}
-            className="text-[#64748B]"
-          >
-            <ArrowLeft className="w-5 h-5" />
+    <Screen withBottomNav contained>
+      <AppHeader title={t("calendar.title")} variant="hero" />
+
+      <div className="flex-1 px-6">
+        {/* Month nav */}
+        <div className="mb-4 flex items-center justify-between">
+          <button onClick={() => shiftMonth(-1)} className="rounded-lg p-2 text-muted-foreground hover:bg-muted" aria-label="previous month">
+            <ChevronLeft className="h-5 w-5" />
           </button>
-          <h1 className="text-[#1E293B] flex-1" style={{ fontSize: "20px", fontWeight: 600 }}>
-            Verfügbarkeit
-          </h1>
+          <h2 className="font-semibold text-foreground">{monthLabel}</h2>
+          <button onClick={() => shiftMonth(1)} className="rounded-lg p-2 text-muted-foreground hover:bg-muted" aria-label="next month">
+            <ChevronRight className="h-5 w-5" />
+          </button>
         </div>
 
-        {/* Month Navigation */}
-        <div className="flex items-center justify-between">
-          <button className="p-2 hover:bg-[#F1F5F9] rounded-lg transition-colors">
-            <ChevronLeft className="w-5 h-5 text-[#64748B]" />
-          </button>
-          <h2 className="text-[#1E293B]" style={{ fontSize: "18px", fontWeight: 600 }}>
-            {currentMonth}
-          </h2>
-          <button className="p-2 hover:bg-[#F1F5F9] rounded-lg transition-colors">
-            <ChevronRight className="w-5 h-5 text-[#64748B]" />
-          </button>
-        </div>
-      </div>
-
-      {/* Content */}
-      <div className="flex-1 px-6 py-6">
         {/* Legend */}
-        <div className="flex gap-6 mb-6">
-          <div className="flex items-center gap-2">
-            <div className="w-4 h-4 rounded-full bg-[#10B981]" />
-            <span className="text-[#64748B]" style={{ fontSize: "14px" }}>
-              Verfügbar
-            </span>
+        <div className="mb-4 flex gap-5 text-sm text-muted-foreground">
+          <span className="inline-flex items-center gap-2"><i className="h-3 w-3 rounded-full bg-success-subtle ring-1 ring-success/40" />{t("calendar.available")}</span>
+          <span className="inline-flex items-center gap-2"><i className="h-3 w-3 rounded-full bg-brand-700" />{t("calendar.booked")}</span>
+        </div>
+
+        {/* Grid */}
+        <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+          <div className="mb-2 grid grid-cols-7 gap-1.5">
+            {weekDays.map((d) => (
+              <div key={d} className="text-center text-xs font-semibold text-muted-foreground">{d}</div>
+            ))}
           </div>
-          <div className="flex items-center gap-2">
-            <div className="w-4 h-4 rounded-full bg-[#0F3B5F]" />
-            <span className="text-[#64748B]" style={{ fontSize: "14px" }}>
-              Gebucht
-            </span>
+          <div className="grid grid-cols-7 gap-1.5">
+            {Array.from({ length: firstWeekday }).map((_, i) => (
+              <div key={`blank-${i}`} />
+            ))}
+            {Array.from({ length: daysInMonth }, (_, i) => i + 1).map((day) => {
+              const isBooked = booked.has(toKey(year, month, day));
+              return (
+                <button
+                  key={day}
+                  onClick={() => toggleDay(day)}
+                  className={cn(
+                    "flex aspect-square items-center justify-center rounded-lg text-sm font-medium transition-colors",
+                    isBooked ? "bg-brand-700 text-white" : "bg-success-subtle text-success hover:bg-success/20",
+                  )}
+                >
+                  {day}
+                </button>
+              );
+            })}
           </div>
         </div>
 
-        {/* Calendar */}
-        <Card className="bg-white p-5 rounded-xl border-[#E2E8F0]">
-          {/* Week days */}
-          <div className="grid grid-cols-7 gap-2 mb-3">
-            {weekDays.map((day) => (
-              <div
-                key={day}
-                className="text-center text-[#64748B]"
-                style={{ fontSize: "13px", fontWeight: 600 }}
-              >
-                {day}
-              </div>
-            ))}
-          </div>
-
-          {/* Calendar days */}
-          <div className="grid grid-cols-7 gap-2">
-            {calendarDays.map((day, idx) => (
-              <button
-                key={idx}
-                className={`aspect-square rounded-lg flex items-center justify-center transition-all ${
-                  day.status === "booked"
-                    ? "bg-[#0F3B5F] text-white"
-                    : "bg-[#10B981]/10 text-[#10B981] hover:bg-[#10B981]/20"
-                }`}
-                style={{ fontSize: "15px", fontWeight: 500 }}
-              >
-                {day.date}
-              </button>
-            ))}
-          </div>
-        </Card>
+        <p className="mt-3 text-xs text-muted-foreground">{t("calendar.toggleHint")}</p>
 
         {/* Stats */}
-        <div className="grid grid-cols-2 gap-4 mt-6">
-          <Card className="bg-white p-4 rounded-xl border-[#E2E8F0]">
-            <p className="text-[#64748B] mb-1" style={{ fontSize: "13px" }}>
-              Gebuchte Tage
-            </p>
-            <p className="text-[#1E293B]" style={{ fontSize: "28px", fontWeight: 600 }}>
-              12
-            </p>
-          </Card>
-          <Card className="bg-white p-4 rounded-xl border-[#E2E8F0]">
-            <p className="text-[#64748B] mb-1" style={{ fontSize: "13px" }}>
-              Verfügbare Tage
-            </p>
-            <p className="text-[#1E293B]" style={{ fontSize: "28px", fontWeight: 600 }}>
-              19
-            </p>
-          </Card>
+        <div className="mt-5 grid grid-cols-2 gap-3">
+          <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
+            <p className="text-sm text-muted-foreground">{t("calendar.bookedDays")}</p>
+            <p className="text-2xl font-semibold text-foreground">{monthBookedCount}</p>
+          </div>
+          <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
+            <p className="text-sm text-muted-foreground">{t("calendar.availableDays")}</p>
+            <p className="text-2xl font-semibold text-foreground">{daysInMonth - monthBookedCount}</p>
+          </div>
         </div>
       </div>
-    </div>
+
+      <BottomNav />
+    </Screen>
   );
 }

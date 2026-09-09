@@ -1,151 +1,171 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
-import { ArrowLeft, MapPin, Search, Filter } from "lucide-react";
-import { Input } from "../../components/ui/input";
-import { Card } from "../../components/ui/card";
+import { MapPin, Star, Info } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
+import { useAuth } from "../../context/AuthContext";
+import { useLocale } from "../../i18n/useLocale";
+import { listExperts } from "../../services/data/users";
+import { openConversationId } from "../../lib/conversation";
+import { loadGoogleMaps } from "../../lib/googleMaps";
+import { formatDailyRate, initials } from "../../lib/format";
+import { Screen, AppHeader, BottomNav, EmptyState, ListSkeleton } from "../../components/shared";
+import type { UserAccount } from "../../types/models";
+
+const MUNICH = { lat: 48.1351, lng: 11.582 };
 
 export function MapView() {
   const navigate = useNavigate();
-  const [searchQuery, setSearchQuery] = useState("");
+  const { t } = useTranslation();
+  const { locale } = useLocale();
+  const { user } = useAuth();
+  const mapRef = useRef<HTMLDivElement>(null);
+  const [experts, setExperts] = useState<UserAccount[] | null>(null);
+  const [mapsAvailable, setMapsAvailable] = useState(true);
 
-  const experts = [
-    {
-      id: 1,
-      name: "Dr. Thomas Weber",
-      location: "München",
-      distance: "2.5 km",
-      rating: 4.9,
-      competencies: ["Lean Production", "OEE"],
-    },
-    {
-      id: 2,
-      name: "Maria Schneider",
-      location: "München",
-      distance: "5.8 km",
-      rating: 4.8,
-      competencies: ["Logistik", "Lean"],
-    },
-    {
-      id: 3,
-      name: "Frank Müller",
-      location: "Unterschleißheim",
-      distance: "12.3 km",
-      rating: 4.7,
-      competencies: ["Qualität", "Produktion"],
-    },
-  ];
+  useEffect(() => {
+    listExperts()
+      .then((all) => setExperts(all.filter((e) => e.expert)))
+      .catch(() => setExperts([]));
+  }, []);
+
+  const located = (experts ?? []).filter((e) => e.expert?.location?.lat && e.expert?.location?.lng);
+
+  // Initialize the map once experts + container are ready.
+  useEffect(() => {
+    if (!experts || !mapRef.current) return;
+    let cancelled = false;
+    loadGoogleMaps().then((maps) => {
+      if (cancelled) return;
+      if (!maps) {
+        setMapsAvailable(false);
+        return;
+      }
+      const center = located[0]?.expert?.location
+        ? { lat: located[0].expert.location.lat!, lng: located[0].expert.location.lng! }
+        : MUNICH;
+      const map = new maps.Map(mapRef.current!, {
+        center,
+        zoom: 11,
+        disableDefaultUI: true,
+        clickableIcons: false,
+      });
+      located.forEach((acc) => {
+        const loc = acc.expert!.location!;
+        const marker = new maps.Marker({
+          position: { lat: loc.lat!, lng: loc.lng! },
+          map,
+          title: acc.expert!.fullName,
+          icon: {
+            path: maps.SymbolPath.CIRCLE,
+            fillColor: "#0F3B5F",
+            fillOpacity: 1,
+            strokeColor: "#FFFFFF",
+            strokeWeight: 2,
+            scale: 9,
+          },
+        });
+        const info = new maps.InfoWindow({
+          content: `<div style="font-weight:600;color:#0F3B5F">${acc.expert!.fullName}</div>`,
+        });
+        marker.addListener("click", () => info.open(map, marker));
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [experts]);
+
+  const handleMessage = async (acc: UserAccount) => {
+    if (!user || !acc.expert) return;
+    try {
+      const convId = await openConversationId(user, {
+        uid: acc.uid,
+        displayName: acc.expert.fullName,
+        role: "EXPERT",
+        photoURL: acc.photoURL,
+      });
+      navigate(`/messaging/${convId}`);
+    } catch {
+      toast.error(t("errors.generic"));
+    }
+  };
 
   return (
-    <div className="h-screen bg-[#F8FAFC] flex flex-col">
-      {/* Header */}
-      <div className="bg-white border-b border-[#E2E8F0] px-4 py-4">
-        <div className="flex items-center gap-3 mb-4">
-          <button
-            onClick={() => navigate(-1)}
-            className="text-[#64748B]"
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </button>
-          <h1 className="text-[#1E293B] flex-1" style={{ fontSize: "20px", fontWeight: 600 }}>
-            Kartenansicht
-          </h1>
-          <button className="p-2 hover:bg-[#F1F5F9] rounded-lg transition-colors">
-            <Filter className="w-5 h-5 text-[#64748B]" />
-          </button>
-        </div>
+    <Screen withBottomNav contained>
+      <AppHeader title={t("map.title")} variant="hero" />
 
-        {/* Search */}
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-[#64748B]" />
-          <Input
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Nach Standort oder Kompetenz suchen..."
-            className="bg-[#F8FAFC] border-[#E2E8F0] h-11 rounded-lg pl-11"
-          />
-        </div>
-      </div>
+      <div className="flex-1 px-6">
+        {/* Map surface */}
+        {mapsAvailable ? (
+          <div ref={mapRef} className="mb-5 h-56 w-full overflow-hidden rounded-2xl border border-border bg-muted" />
+        ) : (
+          <div className="mb-5 flex items-center gap-2 rounded-2xl border border-border bg-warning-subtle px-4 py-3 text-sm text-warning">
+            <Info className="h-4 w-4 shrink-0" />
+            {t("map.missingKey")}
+          </div>
+        )}
 
-      {/* Map Placeholder */}
-      <div className="relative flex-1 bg-[#E2E8F0]">
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div className="text-center">
-            <MapPin className="w-16 h-16 text-[#64748B] mx-auto mb-3" strokeWidth={1.5} />
-            <p className="text-[#64748B]" style={{ fontSize: "16px", fontWeight: 500 }}>
-              Interaktive Karte
-            </p>
-            <p className="text-[#94A3B8]" style={{ fontSize: "14px" }}>
-              Zeigt Experten in Ihrer Nähe
-            </p>
-          </div>
-        </div>
+        <h2 className="mb-3 font-semibold text-foreground">{t("map.nearbyExperts")}</h2>
 
-        {/* Mock Map Pins */}
-        <div className="absolute top-1/4 left-1/3">
-          <div className="bg-[#0F3B5F] text-white w-10 h-10 rounded-full flex items-center justify-center shadow-lg border-4 border-white">
-            <MapPin className="w-5 h-5" fill="white" />
-          </div>
-        </div>
-        <div className="absolute top-1/2 right-1/4">
-          <div className="bg-[#0F3B5F] text-white w-10 h-10 rounded-full flex items-center justify-center shadow-lg border-4 border-white">
-            <MapPin className="w-5 h-5" fill="white" />
-          </div>
-        </div>
-        <div className="absolute bottom-1/3 left-1/2">
-          <div className="bg-[#0F3B5F] text-white w-10 h-10 rounded-full flex items-center justify-center shadow-lg border-4 border-white">
-            <MapPin className="w-5 h-5" fill="white" />
-          </div>
-        </div>
-      </div>
-
-      {/* Experts List (Bottom Sheet) */}
-      <div className="bg-white rounded-t-3xl border-t border-[#E2E8F0] px-6 py-6 max-h-[40vh] overflow-auto">
-        <div className="w-12 h-1 bg-[#E2E8F0] rounded-full mx-auto mb-6" />
-        
-        <h2 className="text-[#1E293B] mb-4" style={{ fontSize: "18px", fontWeight: 600 }}>
-          Experten in der Nähe
-        </h2>
-        
-        <div className="space-y-3">
-          {experts.map((expert) => (
-            <Card
-              key={expert.id}
-              className="bg-[#F8FAFC] p-4 rounded-xl border-[#E2E8F0] hover:shadow-md transition-shadow cursor-pointer"
-            >
-              <div className="flex items-start justify-between mb-2">
-                <div className="flex-1">
-                  <h3 className="text-[#1E293B] mb-1" style={{ fontSize: "16px", fontWeight: 600 }}>
-                    {expert.name}
-                  </h3>
-                  <div className="flex items-center gap-2 text-[#64748B]" style={{ fontSize: "13px" }}>
-                    <MapPin className="w-4 h-4" />
-                    <span>{expert.location}</span>
-                    <span>•</span>
-                    <span>{expert.distance}</span>
+        {experts === null ? (
+          <ListSkeleton />
+        ) : experts.length === 0 ? (
+          <EmptyState icon={MapPin} title={t("map.noLocation")} />
+        ) : (
+          <div className="space-y-3">
+            {experts.map((acc) => {
+              const e = acc.expert!;
+              return (
+                <button
+                  key={acc.uid}
+                  onClick={() => navigate(`/expert/profile/${acc.uid}`)}
+                  className="w-full rounded-xl border border-border bg-card p-4 text-left shadow-sm transition-shadow hover:shadow-md"
+                >
+                  <div className="flex items-start gap-3">
+                    {acc.photoURL ? (
+                      <img src={acc.photoURL} alt="" className="h-11 w-11 shrink-0 rounded-full object-cover" />
+                    ) : (
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand-50 text-sm font-semibold text-brand-700">
+                        {initials(e.fullName)}
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <h3 className="truncate font-semibold text-foreground">{e.fullName}</h3>
+                      <p className="truncate text-sm text-muted-foreground">{e.headline || e.background}</p>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+                        {e.location?.label && (
+                          <span className="inline-flex items-center gap-1"><MapPin className="h-3.5 w-3.5" />{e.location.label}</span>
+                        )}
+                        {e.ratingCount > 0 && (
+                          <span className="inline-flex items-center gap-1"><Star className="h-3.5 w-3.5 fill-warning text-warning" />{e.ratingAverage.toFixed(1)}</span>
+                        )}
+                        <span>{formatDailyRate(e.dailyRate, locale)}</span>
+                      </div>
+                    </div>
                   </div>
-                </div>
-                <div className="flex items-center gap-1">
-                  <span className="text-[#1E293B]" style={{ fontSize: "14px", fontWeight: 600 }}>
-                    {expert.rating}
-                  </span>
-                  <span className="text-[#F59E0B]">★</span>
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {expert.competencies.map((comp, idx) => (
-                  <span
-                    key={idx}
-                    className="bg-white text-[#0F3B5F] px-3 py-1 rounded-full border border-[#E2E8F0]"
-                    style={{ fontSize: "12px", fontWeight: 500 }}
-                  >
-                    {comp}
-                  </span>
-                ))}
-              </div>
-            </Card>
-          ))}
-        </div>
+                  <div className="mt-3 flex justify-end">
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      onClick={(ev) => {
+                        ev.stopPropagation();
+                        void handleMessage(acc);
+                      }}
+                      className="rounded-lg bg-brand-700 px-4 py-1.5 text-sm font-medium text-white hover:bg-brand-900"
+                    >
+                      {t("common.message")}
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
-    </div>
+
+      <BottomNav />
+    </Screen>
   );
 }

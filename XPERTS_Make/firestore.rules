@@ -1,0 +1,113 @@
+rules_version = '2';
+
+// XPERTS marketplace security rules.
+// Model: users own their account doc; SMEs own projects; experts own their
+// applications; ratings are written by the engaging SME; conversations are
+// private to their participants.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isUser(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    // Role read from the caller's own user document.
+    function myRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    // ---- users ----------------------------------------------------------
+    match /users/{uid} {
+      allow read: if isSignedIn();
+      // A user may only create/update their own document, and may not change
+      // their uid or escalate role on update.
+      allow create: if isUser(uid) && request.resource.data.uid == uid;
+      // Owner may update their own doc (without changing their role).
+      allow update: if isUser(uid)
+                    && request.resource.data.role == resource.data.role;
+      // A signed-in rater may bump ONLY the expert rating aggregate by one
+      // review, while identity + rate fields stay locked. (For stronger
+      // integrity, move this to a Cloud Function that owns the aggregate.)
+      allow update: if isSignedIn()
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['expert', 'updatedAt'])
+                    && request.resource.data.expert.ratingCount == resource.data.expert.ratingCount + 1
+                    && request.resource.data.expert.fullName == resource.data.expert.fullName
+                    && request.resource.data.expert.dailyRate == resource.data.expert.dailyRate;
+      allow delete: if false;
+    }
+
+    // ---- projects -------------------------------------------------------
+    match /projects/{projectId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+                    && myRole() == 'SME'
+                    && request.resource.data.ownerId == request.auth.uid;
+      // The owner may fully manage the project. An applying/withdrawing expert
+      // may ONLY adjust the denormalized applicant counter by exactly one.
+      allow update: if isSignedIn() && (
+                      resource.data.ownerId == request.auth.uid
+                      || (
+                        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['applicantCount'])
+                        && (
+                          request.resource.data.applicantCount == resource.data.applicantCount + 1
+                          || request.resource.data.applicantCount == resource.data.applicantCount - 1
+                        )
+                      )
+                    );
+      allow delete: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+    }
+
+    // ---- applications ---------------------------------------------------
+    match /applications/{applicationId} {
+      // Only the applying expert or the owning SME can read an application.
+      allow read: if isSignedIn()
+                  && (resource.data.expertId == request.auth.uid
+                      || resource.data.smeId == request.auth.uid);
+      allow create: if isSignedIn()
+                    && myRole() == 'EXPERT'
+                    && request.resource.data.expertId == request.auth.uid;
+      // SME updates status (accept/reject); expert can withdraw their own.
+      allow update: if isSignedIn()
+                    && (resource.data.smeId == request.auth.uid
+                        || resource.data.expertId == request.auth.uid);
+      allow delete: if false;
+    }
+
+    // ---- ratings --------------------------------------------------------
+    match /ratings/{ratingId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+                    && request.resource.data.raterId == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // ---- conversations + messages --------------------------------------
+    match /conversations/{conversationId} {
+      // `resource == null` permits a get() on a not-yet-created conversation
+      // (used to check existence before creating); for list/get of existing
+      // docs the caller must be a participant.
+      allow read: if isSignedIn()
+                  && (resource == null
+                      || request.auth.uid in resource.data.participantIds);
+      allow create: if isSignedIn()
+                    && request.auth.uid in request.resource.data.participantIds;
+      allow update: if isSignedIn()
+                    && request.auth.uid in resource.data.participantIds;
+
+      match /messages/{messageId} {
+        function participants() {
+          return get(/databases/$(database)/documents/conversations/$(conversationId)).data.participantIds;
+        }
+        allow read: if isSignedIn() && request.auth.uid in participants();
+        allow create: if isSignedIn()
+                      && request.auth.uid in participants()
+                      && request.resource.data.senderId == request.auth.uid;
+        allow update, delete: if false;
+      }
+    }
+  }
+}

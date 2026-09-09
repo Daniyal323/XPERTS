@@ -1,124 +1,82 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
-import { ArrowLeft, ShoppingCart, Factory, Truck, ClipboardCheck, TrendingUp, Users, Wrench, Package } from "lucide-react";
-import { Card } from "../../components/ui/card";
-import { Button } from "../../components/ui/button";
+import { useTranslation } from "react-i18next";
 import { useProject } from "../../context/ProjectContext";
+import { Screen, AppHeader, FormField, WizardProgress } from "../../components/shared";
+import { Input } from "../../components/ui/input";
+import { Button } from "../../components/ui/button";
+import { cn } from "../../components/ui/utils";
+import { PROJECT_CATEGORIES } from "../../lib/categories";
 
 export function ProjectCreateStep1() {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const { draft, updateDraft } = useProject();
-  const [selectedCategories, setSelectedCategories] = useState<string[]>(draft.category);
+  const [title, setTitle] = useState(draft.title);
+  const [category, setCategory] = useState(draft.category);
 
-  const categories = [
-    { id: "einkauf", label: "Einkauf", icon: ShoppingCart },
-    { id: "produktion", label: "Produktion", icon: Factory },
-    { id: "logistik", label: "Logistik", icon: Truck },
-    { id: "qualitaet", label: "Qualität", icon: ClipboardCheck },
-    { id: "vertrieb", label: "Vertrieb", icon: TrendingUp },
-    { id: "personal", label: "Personal", icon: Users },
-    { id: "wartung", label: "Wartung", icon: Wrench },
-    { id: "lager", label: "Lager", icon: Package },
-  ];
-
-  const toggleCategory = (categoryId: string) => {
-    setSelectedCategories((prev) =>
-      prev.includes(categoryId)
-        ? prev.filter((id) => id !== categoryId)
-        : [...prev, categoryId]
-    );
-  };
+  const canContinue = title.trim().length > 0 && category.length > 0;
 
   const handleNext = () => {
-    if (selectedCategories.length > 0) {
-      updateDraft({ category: selectedCategories });
-      navigate("/sme/project/create/step2");
-    }
+    if (!canContinue) return;
+    updateDraft({ title: title.trim(), category });
+    navigate("/sme/project/create/step2");
   };
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] flex flex-col">
-      {/* Header */}
-      <div className="bg-white border-b border-[#E2E8F0] px-4 py-4">
-        <div className="flex items-center gap-4 mb-4">
-          <button
-            onClick={() => navigate("/sme/dashboard")}
-            className="flex items-center gap-2 text-[#64748B]"
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </button>
-          <h1 className="text-[#1E293B] flex-1" style={{ fontSize: "20px", fontWeight: 600 }}>
-            Neue Anfrage erstellen
-          </h1>
-        </div>
-        
-        {/* Progress */}
-        <div className="flex gap-2">
-          <div className="h-1 flex-1 bg-[#0F3B5F] rounded-full" />
-          <div className="h-1 flex-1 bg-[#E2E8F0] rounded-full" />
-          <div className="h-1 flex-1 bg-[#E2E8F0] rounded-full" />
-        </div>
+    <Screen contained>
+      <AppHeader title={t("project.create.title")} back="/sme/dashboard" />
+      <div className="px-6 pt-4">
+        <WizardProgress step={1} total={3} />
       </div>
 
-      {/* Content */}
       <div className="flex-1 px-6 py-6">
-        <div className="mb-6">
-          <h2 className="text-[#1E293B] mb-2" style={{ fontSize: "24px", fontWeight: 600 }}>
-            Smart-Auswahl
-          </h2>
-          <p className="text-[#64748B]" style={{ fontWeight: 400 }}>
-            Wählen Sie die relevanten Bereiche für Ihr Projekt
-          </p>
-        </div>
+        <h2 className="text-xl font-semibold text-foreground">{t("project.create.step1Title")}</h2>
+        <p className="mt-1 text-muted-foreground">{t("project.create.step1Subtitle")}</p>
 
-        <div className="grid grid-cols-2 gap-4 mb-6">
-          {categories.map((category) => {
-            const Icon = category.icon;
-            const isSelected = selectedCategories.includes(category.id);
-            
-            return (
-              <Card
-                key={category.id}
-                onClick={() => toggleCategory(category.id)}
-                className={`p-6 rounded-xl cursor-pointer transition-all ${
-                  isSelected
-                    ? "bg-[#0F3B5F] border-[#0F3B5F] shadow-lg"
-                    : "bg-white border-[#E2E8F0] hover:border-[#0F3B5F]"
-                }`}
-              >
-                <div className="flex flex-col items-center justify-center text-center h-full">
-                  <div
-                    className={`mb-3 ${
-                      isSelected ? "text-white" : "text-[#0F3B5F]"
-                    }`}
+        <div className="mt-6 space-y-6">
+          <FormField id="title" label={t("project.create.projectTitle")}>
+            <Input
+              id="title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder={t("project.create.projectTitlePlaceholder")}
+              className="h-12 rounded-lg bg-input-background"
+            />
+          </FormField>
+
+          <div className="space-y-2">
+            <label className="text-sm text-foreground">{t("project.create.category")}</label>
+            <div className="grid grid-cols-2 gap-3">
+              {PROJECT_CATEGORIES.map((cat) => {
+                const selected = category === cat.id;
+                return (
+                  <button
+                    key={cat.id}
+                    type="button"
+                    onClick={() => setCategory(cat.id)}
+                    className={cn(
+                      "flex flex-col items-center gap-2 rounded-xl border p-4 transition-all",
+                      selected
+                        ? "border-brand-700 bg-brand-700 text-white shadow-md"
+                        : "border-border bg-card text-foreground hover:border-brand-300",
+                    )}
                   >
-                    <Icon className="w-8 h-8" strokeWidth={1.5} />
-                  </div>
-                  <span
-                    className={`${
-                      isSelected ? "text-white" : "text-[#1E293B]"
-                    }`}
-                    style={{ fontWeight: 500 }}
-                  >
-                    {category.label}
-                  </span>
-                </div>
-              </Card>
-            );
-          })}
+                    <cat.icon className="h-7 w-7" strokeWidth={1.5} />
+                    <span className="text-sm font-medium">{t(cat.labelKey)}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Bottom Button */}
-      <div className="p-6 bg-white border-t border-[#E2E8F0]">
-        <Button
-          onClick={handleNext}
-          disabled={selectedCategories.length === 0}
-          className="w-full h-12 bg-[#0F3B5F] hover:bg-[#0F3B5F]/90 text-white rounded-lg disabled:bg-[#E2E8F0] disabled:text-[#94A3B8]"
-        >
-          Weiter
+      <div className="sticky bottom-0 border-t border-border bg-card px-6 py-4">
+        <Button onClick={handleNext} disabled={!canContinue} className="h-12 w-full rounded-lg bg-brand-700 text-white hover:bg-brand-900 disabled:opacity-50">
+          {t("common.continue")}
         </Button>
       </div>
-    </div>
+    </Screen>
   );
 }

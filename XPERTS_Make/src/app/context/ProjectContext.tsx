@@ -1,65 +1,60 @@
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useMemo, useState } from "react";
+import type { LocationType } from "../types/models";
 
-interface ProjectDraft {
+/**
+ * Draft state for the multi-step "create project" wizard. Strings are kept as
+ * entered (e.g. numeric fields) and parsed at publish time. Shape mirrors the
+ * production `Project` model so the final write is a straight mapping.
+ */
+export interface ProjectDraft {
   title: string;
-  category: string[];
+  category: string;
+  competenciesRequired: string[];
   description: string;
-  budget: string;
-  duration: string;
-  location: string;
-  location_details: string;
+  durationDays: string;
+  budgetPerDay: string;
+  locationType: LocationType;
+  locationLabel: string;
 }
+
+const EMPTY_DRAFT: ProjectDraft = {
+  title: "",
+  category: "",
+  competenciesRequired: [],
+  description: "",
+  durationDays: "",
+  budgetPerDay: "",
+  locationType: "remote",
+  locationLabel: "",
+};
 
 interface ProjectContextType {
   draft: ProjectDraft;
-  currentProjectId: number | null;
   updateDraft: (data: Partial<ProjectDraft>) => void;
-  setCurrentProjectId: (id: number) => void;
   clearDraft: () => void;
 }
 
 const ProjectContext = createContext<ProjectContextType | undefined>(undefined);
 
 export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [currentProjectId, setCurrentProjectId] = useState<number | null>(null);
-  const [draft, setDraft] = useState<ProjectDraft>({
-    title: "",
-    category: [],
-    description: "",
-    budget: "",
-    duration: "",
-    location: "remote",
-    location_details: "",
-  });
+  const [draft, setDraft] = useState<ProjectDraft>(EMPTY_DRAFT);
 
-  const updateDraft = (data: Partial<ProjectDraft>) => {
-    setDraft(prev => ({ ...prev, ...data }));
-  };
-
-  const clearDraft = () => {
-    setDraft({
-      title: "",
-      category: [],
-      description: "",
-      budget: "",
-      duration: "",
-      location: "remote",
-      location_details: "",
-    });
-    setCurrentProjectId(null);
-  };
-
-  return (
-    <ProjectContext.Provider value={{ draft, currentProjectId, updateDraft, setCurrentProjectId, clearDraft }}>
-      {children}
-    </ProjectContext.Provider>
+  const value = useMemo<ProjectContextType>(
+    () => ({
+      draft,
+      updateDraft: (data) => setDraft((prev) => ({ ...prev, ...data })),
+      clearDraft: () => setDraft(EMPTY_DRAFT),
+    }),
+    [draft],
   );
+
+  return <ProjectContext.Provider value={value}>{children}</ProjectContext.Provider>;
 };
 
 export const useProject = () => {
   const context = useContext(ProjectContext);
   if (context === undefined) {
-    throw new Error('useProject must be used within a ProjectProvider');
+    throw new Error("useProject must be used within a ProjectProvider");
   }
   return context;
 };

@@ -1,52 +1,78 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { jwtDecode } from 'jwt-decode';
-
-interface User {
-  id: number;
-  email: string;
-  role: 'SME' | 'EXPERT' | 'ADMIN';
-}
+import React, { createContext, useContext, useEffect, useRef, useState } from "react";
+import { onAuthStateChanged, signOut } from "firebase/auth";
+import { auth } from "../services/firebaseConfig";
+import { subscribeUser } from "../services/data/users";
+import type { UserAccount, UserRole } from "../types/models";
 
 interface AuthContextType {
-  user: User | null;
-  token: string | null;
-  login: (token: string) => void;
-  logout: () => void;
+  /** Full typed account document (with embedded expert/sme profile), or null. */
+  user: UserAccount | null;
+  /** Firebase auth uid, available before the Firestore doc resolves. */
+  uid: string | null;
+  role: UserRole | null;
+  loading: boolean;
   isAuthenticated: boolean;
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [token, setToken] = useState<string | null>(localStorage.getItem('xperts_token'));
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<UserAccount | null>(null);
+  const [uid, setUid] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const profileUnsub = useRef<(() => void) | null>(null);
 
   useEffect(() => {
-    if (token) {
-      try {
-        const decoded: any = jwtDecode(token);
-        // Assuming the JWT sub contains the user ID and we might need another call for full user info
-        // For now, we'll just mock the user object from the token sub or storage
-        setUser({ id: decoded.sub, email: '', role: 'SME' }); // Basic mock
-        localStorage.setItem('xperts_token', token);
-      } catch (e) {
-        logout();
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      // Tear down any previous profile subscription on auth change.
+      profileUnsub.current?.();
+      profileUnsub.current = null;
+
+      if (firebaseUser) {
+        setUid(firebaseUser.uid);
+        // Realtime: profile edits (onboarding completion, rating updates)
+        // propagate without a manual refetch.
+        profileUnsub.current = subscribeUser(
+          firebaseUser.uid,
+          (account) => {
+            setUser(account);
+            setLoading(false);
+          },
+          () => {
+            // Profile read failed (offline / rules) — don't hang the app.
+            setUser(null);
+            setLoading(false);
+          },
+        );
+      } else {
+        setUid(null);
+        setUser(null);
+        setLoading(false);
       }
-    }
-  }, [token]);
+    });
 
-  const login = (newToken: string) => {
-    setToken(newToken);
-  };
+    return () => {
+      profileUnsub.current?.();
+      unsubscribe();
+    };
+  }, []);
 
-  const logout = () => {
-    setToken(null);
-    setUser(null);
-    localStorage.removeItem('xperts_token');
+  const logout = async () => {
+    await signOut(auth);
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, isAuthenticated: !!token }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        uid,
+        role: user?.role ?? null,
+        loading,
+        isAuthenticated: !!uid,
+        logout,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
@@ -55,7 +81,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
+    throw new Error("useAuth must be used within an AuthProvider");
   }
   return context;
 };

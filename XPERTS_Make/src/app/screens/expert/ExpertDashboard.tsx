@@ -1,161 +1,185 @@
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
-import { Settings, TrendingUp, Briefcase, Clock } from "lucide-react";
-import { Card } from "../../components/ui/card";
-import { Tabs, TabsList, TabsTrigger } from "../../components/ui/tabs";
+import { Sparkles, Briefcase, MapPin, Clock, TrendingUp } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { useAuth } from "../../context/AuthContext";
+import { useLocale } from "../../i18n/useLocale";
+import { listOpenProjects } from "../../services/data/projects";
+import { subscribeExpertApplications } from "../../services/data/applications";
+import { calculateMatchScore } from "../../services/matching";
+import { categoryLabelKey } from "../../lib/categories";
+import { formatDailyRate, formatRelativeTime } from "../../lib/format";
+import {
+  Screen,
+  AppHeader,
+  BottomNav,
+  EmptyState,
+  ErrorState,
+  ListSkeleton,
+  MatchScoreBadge,
+  ApplicationStatusBadge,
+} from "../../components/shared";
+import type { Application, Project } from "../../types/models";
+
+type Tab = "discover" | "applied";
+interface ScoredProject extends Project {
+  matchScore: number;
+}
 
 export function ExpertDashboard() {
   const navigate = useNavigate();
+  const { t } = useTranslation();
+  const { locale } = useLocale();
+  const { uid, user } = useAuth();
 
-  const opportunities = [
-    {
-      id: 1,
-      company: "TechParts GmbH",
-      title: "Lean Management Beratung",
-      category: "Produktion",
-      location: "München",
-      rate: 800,
-      duration: 30,
-      match: 94,
-      postedDate: "Vor 1 Tag",
-    },
-    {
-      id: 2,
-      company: "AutoSupply AG",
-      title: "Logistikoptimierung",
-      category: "Logistik",
-      location: "Stuttgart",
-      rate: 750,
-      duration: 45,
-      match: 89,
-      postedDate: "Vor 2 Tagen",
-    },
-    {
-      id: 3,
-      company: "Precision Tools Ltd.",
-      title: "Qualitätsmanagement Setup",
-      category: "Qualität",
-      location: "Remote",
-      rate: 850,
-      duration: 20,
-      match: 87,
-      postedDate: "Vor 3 Tagen",
-    },
-  ];
+  const [opportunities, setOpportunities] = useState<ScoredProject[] | null>(null);
+  const [applications, setApplications] = useState<Application[] | null>(null);
+  const [error, setError] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [tab, setTab] = useState<Tab>("discover");
+
+  const expert = user?.expert;
+
+  useEffect(() => {
+    if (!expert) return;
+    let active = true;
+    setError(false);
+    listOpenProjects()
+      .then((projects) => {
+        if (!active) return;
+        const scored = projects
+          .map((p) => ({ ...p, matchScore: calculateMatchScore(p, expert) }))
+          .sort((a, b) => b.matchScore - a.matchScore);
+        setOpportunities(scored);
+      })
+      .catch(() => active && setError(true));
+    return () => {
+      active = false;
+    };
+  }, [expert, reloadKey]);
+
+  useEffect(() => {
+    if (!uid) return;
+    return subscribeExpertApplications(uid, setApplications, () => setError(true));
+  }, [uid, reloadKey]);
+
+  const stats = useMemo(
+    () => ({
+      matches: opportunities?.filter((o) => o.matchScore >= 50).length ?? 0,
+      active: applications?.filter((a) => a.status === "accepted").length ?? 0,
+    }),
+    [opportunities, applications],
+  );
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] flex flex-col">
-      {/* Header */}
-      <div className="bg-white border-b border-[#E2E8F0] px-6 py-4">
-        <div className="flex items-center justify-between mb-4">
-          <h1 className="text-[#1E293B]" style={{ fontSize: "24px", fontWeight: 600 }}>
-            Dashboard
-          </h1>
-          <button
-            onClick={() => navigate("/expert/profile-setup")}
-            className="p-2 hover:bg-[#F1F5F9] rounded-lg transition-colors"
-          >
-            <Settings className="w-5 h-5 text-[#64748B]" />
-          </button>
-        </div>
-        <Tabs defaultValue="new" className="w-full">
-          <TabsList className="grid w-full grid-cols-2 bg-[#F1F5F9] p-1 rounded-lg">
-            <TabsTrigger value="new" className="rounded-md data-[state=active]:bg-white data-[state=active]:text-[#0F3B5F]">
-              Neu
-            </TabsTrigger>
-            <TabsTrigger value="applied" className="rounded-md data-[state=active]:bg-white data-[state=active]:text-[#0F3B5F]">
-              Beworben
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
-      </div>
+    <Screen withBottomNav contained>
+      <AppHeader title={t("expert.dashboard.title")} variant="hero" />
 
-      {/* Stats Cards */}
-      <div className="px-6 py-6">
-        <div className="grid grid-cols-2 gap-4 mb-6">
-          <Card className="bg-white p-4 rounded-xl border-[#E2E8F0] shadow-sm">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-[#64748B] text-sm mb-1">Neue Anfragen</p>
-                <p className="text-[#1E293B]" style={{ fontSize: "28px", fontWeight: 600 }}>
-                  {opportunities.length}
-                </p>
-              </div>
-              <div className="bg-[#0F3B5F]/10 p-2 rounded-lg">
-                <TrendingUp className="w-5 h-5 text-[#0F3B5F]" />
-              </div>
-            </div>
-          </Card>
-
-          <Card className="bg-white p-4 rounded-xl border-[#E2E8F0] shadow-sm">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-[#64748B] text-sm mb-1">Aktive Projekte</p>
-                <p className="text-[#1E293B]" style={{ fontSize: "28px", fontWeight: 600 }}>2</p>
-              </div>
-              <div className="bg-[#64748B]/10 p-2 rounded-lg">
-                <Briefcase className="w-5 h-5 text-[#64748B]" />
-              </div>
-            </div>
-          </Card>
+      <div className="flex-1 px-6">
+        <div className="mb-6 grid grid-cols-2 gap-3">
+          <Stat icon={Sparkles} label={t("expert.dashboard.statMatches")} value={stats.matches} />
+          <Stat icon={TrendingUp} label={t("expert.dashboard.statActive")} value={stats.active} tone="info" />
         </div>
 
-        {/* Opportunities */}
-        <div className="mb-4">
-          <h2 className="text-[#1E293B] mb-4" style={{ fontSize: "18px", fontWeight: 600 }}>
-            Passende Anfragen
-          </h2>
-          <div className="space-y-3">
-            {opportunities.map((opportunity) => (
-              <Card
-                key={opportunity.id}
-                className="bg-white p-4 rounded-xl border-[#E2E8F0] shadow-sm hover:shadow-md transition-shadow cursor-pointer"
-                onClick={() => navigate(`/expert/opportunity/${opportunity.id}`)}
-              >
-                <div className="flex items-start justify-between mb-3">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-[#64748B]" style={{ fontSize: "13px" }}>
-                        {opportunity.company}
-                      </span>
-                      <span className="text-[#64748B]">•</span>
-                      <span className="text-[#64748B]" style={{ fontSize: "13px" }}>
-                        {opportunity.postedDate}
-                      </span>
+        <div className="mb-4 grid grid-cols-2 gap-1 rounded-lg bg-muted p-1">
+          {(["discover", "applied"] as Tab[]).map((key) => (
+            <button
+              key={key}
+              onClick={() => setTab(key)}
+              className={`rounded-md py-2 text-sm font-medium transition-colors ${
+                tab === key ? "bg-card text-brand-700 shadow-sm" : "text-muted-foreground"
+              }`}
+            >
+              {t(key === "discover" ? "expert.dashboard.newTab" : "expert.dashboard.appliedTab")}
+            </button>
+          ))}
+        </div>
+
+        {error ? (
+          <ErrorState onRetry={() => setReloadKey((k) => k + 1)} />
+        ) : tab === "discover" ? (
+          opportunities === null ? (
+            <ListSkeleton />
+          ) : opportunities.length === 0 ? (
+            <EmptyState icon={Briefcase} title={t("expert.dashboard.noOpportunities")} description={t("expert.dashboard.noOpportunitiesDesc")} />
+          ) : (
+            <div className="space-y-3">
+              {opportunities.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => navigate(`/expert/opportunity/${p.id}`)}
+                  className="w-full rounded-xl border border-border bg-card p-4 text-left shadow-sm transition-shadow hover:shadow-md"
+                >
+                  <div className="mb-2 flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-xs text-muted-foreground">{p.ownerCompany}</p>
+                      <h3 className="truncate font-semibold text-foreground">{p.title}</h3>
                     </div>
-                    <h3 className="text-[#1E293B] mb-2" style={{ fontSize: "16px", fontWeight: 600 }}>
-                      {opportunity.title}
-                    </h3>
+                    <MatchScoreBadge score={p.matchScore} />
                   </div>
-                  <div className="bg-[#10B981]/10 text-[#10B981] px-2 py-1 rounded-full" style={{ fontSize: "11px", fontWeight: 600 }}>
-                    {opportunity.match}%
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                    <span className="inline-flex items-center gap-1"><Briefcase className="h-4 w-4" />{t(categoryLabelKey(p.category))}</span>
+                    <span className="inline-flex items-center gap-1"><MapPin className="h-4 w-4" />{t(`common.${p.locationType}`)}</span>
+                    <span className="inline-flex items-center gap-1"><Clock className="h-4 w-4" />{p.durationDays} {t("common.days")}</span>
                   </div>
+                  <div className="mt-3 flex items-center justify-between border-t border-border pt-3">
+                    <span className="text-xs text-muted-foreground">{formatRelativeTime(p.createdAt, locale)}</span>
+                    <span className="font-semibold text-foreground">{formatDailyRate(p.budgetPerDay, locale)}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )
+        ) : applications === null ? (
+          <ListSkeleton />
+        ) : applications.length === 0 ? (
+          <EmptyState icon={Briefcase} title={t("expert.dashboard.noApplications")} description={t("expert.dashboard.noApplicationsDesc")} />
+        ) : (
+          <div className="space-y-3">
+            {applications.map((app) => (
+              <button
+                key={app.id}
+                onClick={() => navigate(`/expert/opportunity/${app.projectId}`)}
+                className="w-full rounded-xl border border-border bg-card p-4 text-left shadow-sm transition-shadow hover:shadow-md"
+              >
+                <div className="mb-2 flex items-start justify-between gap-3">
+                  <h3 className="truncate font-semibold text-foreground">{app.project.title}</h3>
+                  <ApplicationStatusBadge status={app.status} />
                 </div>
-
-                <div className="flex items-center gap-2 mb-3">
-                  <span className="bg-[#F1F5F9] text-[#0F3B5F] px-3 py-1 rounded-full" style={{ fontSize: "12px", fontWeight: 500 }}>
-                    {opportunity.category}
-                  </span>
-                  <span className="bg-[#F1F5F9] text-[#64748B] px-3 py-1 rounded-full" style={{ fontSize: "12px", fontWeight: 500 }}>
-                    {opportunity.location}
-                  </span>
+                <div className="flex items-center justify-between text-sm text-muted-foreground">
+                  <span>{t(categoryLabelKey(app.project.category))}</span>
+                  <span className="font-semibold text-foreground">{formatDailyRate(app.proposedRate, locale)}</span>
                 </div>
-
-                <div className="flex items-center justify-between text-[#64748B]" style={{ fontSize: "14px" }}>
-                  <div className="flex items-center gap-1">
-                    <Briefcase className="w-4 h-4" />
-                    <span>{opportunity.duration} Tage</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <span className="text-[#1E293B]" style={{ fontWeight: 600 }}>
-                      €{opportunity.rate}/Tag
-                    </span>
-                  </div>
-                </div>
-              </Card>
+                <p className="mt-2 text-xs text-muted-foreground">{formatRelativeTime(app.createdAt, locale)}</p>
+              </button>
             ))}
           </div>
-        </div>
+        )}
       </div>
+
+      <BottomNav />
+    </Screen>
+  );
+}
+
+function Stat({
+  icon: Icon,
+  label,
+  value,
+  tone = "brand",
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: number;
+  tone?: "brand" | "info";
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
+      <span className={`mb-2 flex h-9 w-9 items-center justify-center rounded-lg ${tone === "info" ? "bg-info-subtle text-info" : "bg-brand-50 text-brand-700"}`}>
+        <Icon className="h-5 w-5" />
+      </span>
+      <p className="text-2xl font-semibold text-foreground">{value}</p>
+      <p className="text-sm text-muted-foreground">{label}</p>
     </div>
   );
 }

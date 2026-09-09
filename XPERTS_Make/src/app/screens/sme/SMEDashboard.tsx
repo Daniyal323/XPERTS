@@ -1,131 +1,171 @@
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
-import { Plus, TrendingUp, Users, Calendar, Settings } from "lucide-react";
-import { Card } from "../../components/ui/card";
+import { Plus, FolderKanban, Users, Briefcase, MapPin } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { useAuth } from "../../context/AuthContext";
+import { useLocale } from "../../i18n/useLocale";
+import { subscribeOwnerProjects } from "../../services/data/projects";
+import {
+  Screen,
+  AppHeader,
+  BottomNav,
+  EmptyState,
+  ErrorState,
+  ListSkeleton,
+  ProjectStatusBadge,
+} from "../../components/shared";
 import { Button } from "../../components/ui/button";
-import { Tabs, TabsList, TabsTrigger } from "../../components/ui/tabs";
+import { categoryLabelKey } from "../../lib/categories";
+import { formatRelativeTime } from "../../lib/format";
+import type { Project } from "../../types/models";
+
+type Tab = "active" | "completed";
 
 export function SMEDashboard() {
   const navigate = useNavigate();
+  const { t } = useTranslation();
+  const { locale } = useLocale();
+  const { uid } = useAuth();
+  const [projects, setProjects] = useState<Project[] | null>(null);
+  const [error, setError] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [tab, setTab] = useState<Tab>("active");
 
-  const activeRequests = [
-    {
-      id: 1,
-      title: "App Development",
-      expertsFound: 3,
-      status: "Aktiv",
-      date: "Vor 2 Tagen",
-    },
-    {
-      id: 2,
-      title: "Lean Management",
-      expertsFound: 5,
-      status: "Aktiv",
-      date: "Vor 5 Tagen",
-    },
-    {
-      id: 3,
-      title: "Logistikoptimierung",
-      expertsFound: 7,
-      status: "In Prüfung",
-      date: "Vor 1 Woche",
-    },
-  ];
+  useEffect(() => {
+    if (!uid) return;
+    setError(false);
+    return subscribeOwnerProjects(uid, setProjects, () => setError(true));
+  }, [uid, reloadKey]);
+
+  const activeStatuses: Project["status"][] = ["open", "in_progress"];
+  const visible = (projects ?? []).filter((p) =>
+    tab === "active" ? activeStatuses.includes(p.status) : !activeStatuses.includes(p.status),
+  );
+
+  const stats = useMemo(() => {
+    const list = projects ?? [];
+    return {
+      active: list.filter((p) => activeStatuses.includes(p.status)).length,
+      applicants: list.reduce((sum, p) => sum + (p.applicantCount ?? 0), 0),
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projects]);
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] flex flex-col">
-      {/* Header */}
-      <div className="bg-white border-b border-[#E2E8F0] px-6 py-4">
-        <div className="flex items-center justify-between mb-4">
-          <h1 className="text-[#1E293B]" style={{ fontSize: "24px", fontWeight: 600 }}>
-            Dashboard
-          </h1>
-          <button className="p-2 hover:bg-[#F1F5F9] rounded-lg transition-colors">
-            <Settings className="w-5 h-5 text-[#64748B]" />
-          </button>
-        </div>
-        <Tabs defaultValue="active" className="w-full">
-          <TabsList className="grid w-full grid-cols-2 bg-[#F1F5F9] p-1 rounded-lg">
-            <TabsTrigger value="active" className="rounded-md data-[state=active]:bg-white data-[state=active]:text-[#0F3B5F]">
-              Aktiv
-            </TabsTrigger>
-            <TabsTrigger value="past" className="rounded-md data-[state=active]:bg-white data-[state=active]:text-[#0F3B5F]">
-              Abgeschlossen
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
-      </div>
+    <Screen withBottomNav contained>
+      <AppHeader title={t("sme.dashboard.title")} variant="hero" />
 
-      {/* Stats Cards */}
-      <div className="px-6 py-6">
-        <div className="grid grid-cols-2 gap-4 mb-6">
-          <Card className="bg-white p-4 rounded-xl border-[#E2E8F0] shadow-sm">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-[#64748B] text-sm mb-1">Anfragen</p>
-                <p className="text-[#1E293B]" style={{ fontSize: "28px", fontWeight: 600 }}>3</p>
-              </div>
-              <div className="bg-[#0F3B5F]/10 p-2 rounded-lg">
-                <TrendingUp className="w-5 h-5 text-[#0F3B5F]" />
-              </div>
-            </div>
-          </Card>
-
-          <Card className="bg-white p-4 rounded-xl border-[#E2E8F0] shadow-sm">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-[#64748B] text-sm mb-1">Experten</p>
-                <p className="text-[#1E293B]" style={{ fontSize: "28px", fontWeight: 600 }}>15</p>
-              </div>
-              <div className="bg-[#64748B]/10 p-2 rounded-lg">
-                <Users className="w-5 h-5 text-[#64748B]" />
-              </div>
-            </div>
-          </Card>
+      <div className="flex-1 px-6">
+        {/* Stats */}
+        <div className="mb-6 grid grid-cols-2 gap-3">
+          <StatCard icon={FolderKanban} label={t("sme.dashboard.statProjects")} value={stats.active} />
+          <StatCard icon={Users} label={t("sme.dashboard.statApplicants")} value={stats.applicants} tone="info" />
         </div>
 
-        {/* Active Requests */}
-        <div className="mb-4">
-          <h2 className="text-[#1E293B] mb-4" style={{ fontSize: "18px", fontWeight: 600 }}>
-            Aktive Anfragen
-          </h2>
+        {/* Tabs */}
+        <div className="mb-4 grid grid-cols-2 gap-1 rounded-lg bg-muted p-1">
+          {(["active", "completed"] as Tab[]).map((key) => (
+            <button
+              key={key}
+              onClick={() => setTab(key)}
+              className={`rounded-md py-2 text-sm font-medium transition-colors ${
+                tab === key ? "bg-card text-brand-700 shadow-sm" : "text-muted-foreground"
+              }`}
+            >
+              {t(`sme.dashboard.${key}Tab`)}
+            </button>
+          ))}
+        </div>
+
+        {/* List */}
+        {error ? (
+          <ErrorState onRetry={() => setReloadKey((k) => k + 1)} />
+        ) : projects === null ? (
+          <ListSkeleton />
+        ) : visible.length === 0 ? (
+          <EmptyState
+            icon={FolderKanban}
+            title={t("sme.dashboard.noProjects")}
+            description={t("sme.dashboard.noProjectsDesc")}
+            action={
+              <Button onClick={() => navigate("/sme/project/create/step1")} className="bg-brand-700 text-white hover:bg-brand-900">
+                {t("sme.dashboard.createFirst")}
+              </Button>
+            }
+          />
+        ) : (
           <div className="space-y-3">
-            {activeRequests.map((request) => (
-              <Card
-                key={request.id}
-                className="bg-white p-4 rounded-xl border-[#E2E8F0] shadow-sm hover:shadow-md transition-shadow cursor-pointer"
-                onClick={() => navigate("/sme/experts")}
+            {visible.map((project) => (
+              <button
+                key={project.id}
+                onClick={() => navigate(`/sme/project/${project.id}`)}
+                className="w-full rounded-xl border border-border bg-card p-4 text-left shadow-sm transition-shadow hover:shadow-md"
               >
-                <div className="flex items-start justify-between mb-3">
-                  <h3 className="text-[#1E293B]" style={{ fontSize: "16px", fontWeight: 600 }}>
-                    {request.title}
-                  </h3>
-                  <span className="bg-[#0F3B5F]/10 text-[#0F3B5F] px-3 py-1 rounded-full text-xs" style={{ fontWeight: 500 }}>
-                    {request.status}
+                <div className="mb-2 flex items-start justify-between gap-3">
+                  <h3 className="font-semibold text-foreground">{project.title}</h3>
+                  <ProjectStatusBadge status={project.status} />
+                </div>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                  <span className="inline-flex items-center gap-1">
+                    <Briefcase className="h-4 w-4" />
+                    {t(categoryLabelKey(project.category))}
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    <MapPin className="h-4 w-4" />
+                    {t(`common.${project.locationType}`)}
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    <Users className="h-4 w-4" />
+                    {t("sme.dashboard.applicants", { count: project.applicantCount ?? 0 })}
                   </span>
                 </div>
-                <div className="flex items-center gap-4 text-sm text-[#64748B]">
-                  <div className="flex items-center gap-1">
-                    <Users className="w-4 h-4" />
-                    <span>{request.expertsFound} Experten gefunden</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Calendar className="w-4 h-4" />
-                    <span>{request.date}</span>
-                  </div>
-                </div>
-              </Card>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {t("project.detail.posted")} {formatRelativeTime(project.createdAt, locale)}
+                </p>
+              </button>
             ))}
           </div>
-        </div>
+        )}
       </div>
 
       {/* FAB */}
       <button
         onClick={() => navigate("/sme/project/create/step1")}
-        className="fixed bottom-6 right-6 bg-[#0F3B5F] text-white w-14 h-14 rounded-full shadow-xl hover:bg-[#0F3B5F]/90 flex items-center justify-center"
+        aria-label={t("sme.dashboard.newProject")}
+        className="fixed bottom-24 right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-brand-700 text-white shadow-lg transition-transform hover:scale-105 active:scale-100"
       >
-        <Plus className="w-6 h-6" strokeWidth={2} />
+        <Plus className="h-6 w-6" />
       </button>
+
+      <BottomNav />
+    </Screen>
+  );
+}
+
+function StatCard({
+  icon: Icon,
+  label,
+  value,
+  tone = "brand",
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: number;
+  tone?: "brand" | "info";
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
+      <div className="mb-2 flex items-center justify-between">
+        <span
+          className={`flex h-9 w-9 items-center justify-center rounded-lg ${
+            tone === "info" ? "bg-info-subtle text-info" : "bg-brand-50 text-brand-700"
+          }`}
+        >
+          <Icon className="h-5 w-5" />
+        </span>
+      </div>
+      <p className="text-2xl font-semibold text-foreground">{value}</p>
+      <p className="text-sm text-muted-foreground">{label}</p>
     </div>
   );
 }
